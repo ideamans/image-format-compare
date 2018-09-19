@@ -2,7 +2,7 @@ require 'ostruct'
 require 'open3'
 
 def sources
-  # ブロック画像
+  # ノイズの粒度によるバリエーション
   sources = Dir.glob('./original/*').map do |f|
     ext = File.extname f
     filename = File.basename f, ext
@@ -25,7 +25,7 @@ def sources
     values
   end
 
-  # 混在画像
+  # ノイズ領域の広さによるバリエーション
   width = 256
   sources += 10.step(100, 10).map do |share|
     w = Math.sqrt(width * width * share / 100).to_i
@@ -47,19 +47,26 @@ def sources
     values
   end
 
+  # ユニークな色数の取得
   sources.each do |source|
-    info = `/usr/local/bin/identify -verbose #{source[:path]}`
+    info = `/usr/local/bin/identify -verbose -unique #{source[:path]}`
     if info =~ /Colors:\s(\d+)/
       source[:colors] = $1.to_i
     end
   end
+
+  sources
 end
 
 def converts
   converts = []
+
+  # Jpeg変換のバリエーション
   converts += 10.step(100, 10).map do |quality|
     { format: 'jpg', ext: '.jpg', quality: quality, suffix: "-q#{quality}" }
   end
+
+  # PNG変換のバリエーション
   converts += [8, 24].map do |bits|
     { format: 'png', ext: '.png', bits: bits, suffix: "-b#{bits}" }
   end
@@ -81,8 +88,10 @@ def run
       result.merge! format: convert[:format], quality: convert[:quality], bits: convert[:bits]
       result[:key] = result[:blocks] ? 'b' + result[:block].to_s.rjust(3, '0') + convert[:suffix] : 'n' + result[:share].to_s.rjust(3, '0') + convert[:suffix]
 
-      dest = File.join('./results', source[:filename] + convert[:suffix] + convert[:ext])
+      result[:path] = source[:filename] + convert[:suffix] + convert[:ext]
+      dest = File.join('./results', result[:path])
 
+      # フォーマットとそのパラメータにより変換
       if convert[:format] == 'jpg'
         `convert -quality #{convert[:quality]} #{source[:path]} #{dest}`
       elsif convert[:format] == 'png'
@@ -91,6 +100,7 @@ def run
 
       result[:dest_size] = File.size(dest)
 
+      # オリジナルとの差分比較
       compares.each do |compare|
         _, value = Open3.capture3("compare -metric #{compare[:metric]} #{source[:path]} #{dest} NULL:")
         if value =~ /([\d\.]+)/
@@ -105,10 +115,10 @@ def run
   results
 end
 
-headers = %i(key type block blocks share colors format quality bits src_size dest_size)
+# 結果の整形と出力
+headers = %i(key path type block blocks share colors format quality bits src_size dest_size)
 headers += compares.map{|c| c[:key].to_sym}
 
-# results = sources
 results = run
 
 puts headers.join("\t")
