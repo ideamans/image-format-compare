@@ -31,10 +31,13 @@ def sources
     w = Math.sqrt(width * width * share / 100).to_i
     filename = "#{share}%noise"
     ext = ".tif"
+    crop = File.join('./tiff', "#{share}%crop.tif")
     tiff = File.join('./tiff', "#{share}%noise.tif")
+    base = File.join('./tiff', "#{width}x1.tif")
+    onto = File.join('./tiff', "1x#{width}.tif")
 
-    `convert -gravity center -crop #{w}x#{w}+0x0 ./tiff/1x#{width}.tif ./tmp/crop.tif`
-    `composite -gravity center -compose over ./tmp/crop.tif ./tiff/#{width}x1.tif #{tiff}`
+    `convert -gravity center -crop #{w}x#{w}+0x0 #{onto} #{crop}`
+    `composite -gravity center -compose over #{crop} #{base} #{tiff}`
 
     values = {}
     values[:type] = 'share'
@@ -43,6 +46,8 @@ def sources
     values[:ext] = ext
     values[:filesize] = File.size(tiff)
     values[:share] = share
+    values[:crop] = crop
+    values[:crop_width] = w
 
     values
   end
@@ -66,6 +71,11 @@ def converts
     { format: 'jpg', ext: '.jpg', quality: quality, suffix: "-q#{quality}" }
   end
 
+  # Jpegの80-90のバリエーション
+  converts += 81.step(89, 2).map do |quality|
+    { format: 'jpg', ext: '.jpg', quality: quality, suffix: "-q#{quality}" }
+  end
+
   # PNG変換のバリエーション
   converts += [8, 24].map do |bits|
     { format: 'png', ext: '.png', bits: bits, suffix: "-b#{bits}" }
@@ -74,7 +84,8 @@ end
 
 def compares
   compares = [
-    { metric: 'SSIM', key: 'ssim' }
+    { metric: 'SSIM', key: 'ssim' },
+    { metric: 'PSNR', key: 'psnr' },
   ]
 end
 
@@ -93,9 +104,13 @@ def run
 
       # フォーマットとそのパラメータにより変換
       if convert[:format] == 'jpg'
+        # `cjpeg -quality #{convert[:quality]} -outfile #{dest} #{source[:path]}`
+        p "convert -quality #{convert[:quality]} #{source[:path]} #{dest}"
         `convert -quality #{convert[:quality]} #{source[:path]} #{dest}`
+        result[:encode] = "jpg#{convert[:quality].to_s.rjust(3, '0')}"
       elsif convert[:format] == 'png'
         `convert #{source[:path]} png#{convert[:bits]}:#{dest}`
+        result[:encode] = "png#{convert[:bits].to_s.rjust(2, '0')}"
       end
 
       result[:filesize] = File.size(dest)
@@ -105,6 +120,16 @@ def run
         _, value = Open3.capture3("compare -metric #{compare[:metric]} #{source[:path]} #{dest} NULL:")
         if value =~ /([\d\.]+)/
           result[compare[:key].to_sym] = $1.to_f
+        end
+
+        if source[:crop]
+          recrop = dest + '-recrop.tif'
+          w = source[:crop_width]
+          `convert -gravity center -crop #{w}x#{w}+0x0 #{dest} #{recrop}`
+          _, value = Open3.capture3("compare -metric #{compare[:metric]} #{source[:crop]} #{recrop} NULL:")
+          if value =~ /([\d\.]+)/
+            result[('crop_' + compare[:key]).to_sym] = $1.to_f
+          end
         end
       end
 
@@ -116,8 +141,9 @@ def run
 end
 
 # 結果の整形と出力
-headers = %i(key path type block blocks share colors format quality bits tiff_filesize filesize)
+headers = %i(key path type encode block blocks share colors format quality bits tiff_filesize filesize)
 headers += compares.map{|c| c[:key].to_sym}
+headers += compares.map{|c| ('crop_' + c[:key]).to_sym}
 
 results = run
 
