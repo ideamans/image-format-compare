@@ -26,15 +26,15 @@ def sources
   end
 
   # ノイズ領域の広さによるバリエーション
-  width = 256
+  width = 240
   sources += 10.step(100, 10).map do |share|
     w = Math.sqrt(width * width * share / 100).to_i
-    filename = "#{share}%noize"
+    filename = "#{share}%noise"
     ext = ".tif"
-    tiff = File.join('./tiff', "#{share}%noize.tif")
+    tiff = File.join('./tiff', "#{share}%noise.tif")
 
-    `convert -gravity center -crop #{w}x#{w}+0x0 ./tiff/1x256.tif ./tmp/crop.tif`
-    `composite -gravity center -compose over ./tmp/crop.tif ./tiff/256x1.tif #{tiff}`
+    `convert -gravity center -crop #{w}x#{w}+0x0 ./tiff/1x#{width}.tif ./tmp/crop.tif`
+    `composite -gravity center -compose over ./tmp/crop.tif ./tiff/#{width}x1.tif #{tiff}`
 
     values = {}
     values[:type] = 'share'
@@ -82,7 +82,7 @@ def run
   results = []
   sources.each do |source|
     converts.each do |convert|
-      result = {src_file: source[:filename], src_size: source[:filesize], block: source[:block_size], blocks: source[:blocks], share: source[:share], colors: source[:colors]}
+      result = {src_file: source[:filename], tiff_filesize: source[:filesize], block: source[:block_size], blocks: source[:blocks], share: source[:share], colors: source[:colors]}
       result[:type] = source[:type]
 
       result.merge! format: convert[:format], quality: convert[:quality], bits: convert[:bits]
@@ -98,7 +98,7 @@ def run
         `convert #{source[:path]} png#{convert[:bits]}:#{dest}`
       end
 
-      result[:dest_size] = File.size(dest)
+      result[:filesize] = File.size(dest)
 
       # オリジナルとの差分比較
       compares.each do |compare|
@@ -116,7 +116,7 @@ def run
 end
 
 # 結果の整形と出力
-headers = %i(key path type block blocks share colors format quality bits src_size dest_size)
+headers = %i(key path type block blocks share colors format quality bits tiff_filesize filesize)
 headers += compares.map{|c| c[:key].to_sym}
 
 results = run
