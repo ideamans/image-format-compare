@@ -12,6 +12,10 @@ def sources
 
     values = {}
     values[:type] = 'entropy'
+    if filename =~ /photo/
+      values[:type] = 'photo'
+      values[:blocks] = filename
+    end
     values[:path] = tiff
     values[:filename] = filename
     values[:filesize] = File.size(tiff)
@@ -104,12 +108,14 @@ def run
 
       # フォーマットとそのパラメータにより変換
       if convert[:format] == 'jpg'
-        # `cjpeg -quality #{convert[:quality]} -outfile #{dest} #{source[:path]}`
-        p "convert -quality #{convert[:quality]} #{source[:path]} #{dest}"
         `convert -quality #{convert[:quality]} #{source[:path]} #{dest}`
         result[:encode] = "jpg#{convert[:quality].to_s.rjust(3, '0')}"
       elsif convert[:format] == 'png'
-        `convert #{source[:path]} png#{convert[:bits]}:#{dest}`
+        if convert[:bits] == 8
+          `pngquant --force --output #{dest} #{source[:path]}`
+        else
+          `convert #{source[:path]} png#{convert[:bits]}:#{dest}`
+        end
         result[:encode] = "png#{convert[:bits].to_s.rjust(2, '0')}"
       end
 
@@ -119,7 +125,8 @@ def run
       compares.each do |compare|
         _, value = Open3.capture3("compare -metric #{compare[:metric]} #{source[:path]} #{dest} NULL:")
         if value =~ /([\d\.]+)/
-          result[compare[:key].to_sym] = $1.to_f
+          val = $1
+          result[compare[:key].to_sym] = val =~ /^[\d\.]+$/ ? val.to_f : ''
         end
 
         if source[:crop]
